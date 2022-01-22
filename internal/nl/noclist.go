@@ -53,9 +53,8 @@ func (n *NOCList) getAuthToken() error {
 	if err != nil {
 		return err
 	}
-	resp, err := n.client.Do(req)
+	resp, err := n.doWithRetry(req)
 	if err != nil {
-		// TODO: retry
 		return err
 	}
 	defer resp.Body.Close()
@@ -73,15 +72,13 @@ func (n *NOCList) getUsersList() ([]string, error) {
 		return []string{}, err
 	}
 	req.Header.Add(checksumHeaderName, fmt.Sprintf("%s", n.reqChecksum(reqPath)))
-	vipResp, err := n.client.Do(req)
+	vipResp, err := n.doWithRetry(req)
 	if err != nil {
-		// TODO: retry
 		return []string{}, err
 	}
 	defer vipResp.Body.Close()
 	if vipResp.StatusCode != 200 {
-		body, _ := io.ReadAll(vipResp.Body)
-		return []string{}, fmt.Errorf("HTTP Status %d: %s", vipResp.StatusCode, body)
+		return []string{}, n.makeRespError(vipResp)
 	}
 	return n.parseVIPs(vipResp.Body), nil
 }
@@ -99,4 +96,25 @@ func (n *NOCList) parseVIPs(vipRead io.ReadCloser) []string {
 		vips = append(vips, scanner.Text())
 	}
 	return vips
+}
+
+func (n *NOCList) doWithRetry(req *http.Request) (*http.Response, error) {
+	var resp *http.Response
+	var err error
+	for i := 0; i < 3; i++ {
+		resp, err = n.client.Do(req)
+		if err == nil && resp.StatusCode < 300 {
+			return resp, nil
+		}
+		if resp.StatusCode/100 == 4 {
+			// client error, don't retry
+			return resp, n.makeRespError(resp)
+		}
+	}
+	return resp, fmt.Errorf("too many retries")
+}
+
+func (n *NOCList) makeRespError(resp *http.Response) error {
+	body, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("HTTP Status %d: %s", resp.StatusCode, body)
 }
