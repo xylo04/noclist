@@ -15,7 +15,7 @@ func main() {
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	log.Info().Msg("Fetching NOC List...")
 
-	vips, err := nl.Fetch()
+	vips, err := nl.New().Fetch()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to fetch NOC list")
 	}

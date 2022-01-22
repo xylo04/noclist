@@ -7,42 +7,57 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 )
 
-// TODO: command line arg?
-const baseURL string = "http://localhost:8888"
+type NOCList struct {
+	baseURL string
+	tokenMu sync.Mutex
+	token   string
+}
+
+func New() *NOCList {
+	return &NOCList{
+		baseURL: "http://localhost:8888",
+	}
+}
 
 // Fetch will handle all the logic to robustly get the NOC VIP list, including authentication and
 // retries.
-func Fetch() ([]string, error) {
-	token, err := getAuthToken()
+func (n *NOCList) Fetch() ([]string, error) {
+	err := n.getAuthToken()
 	if err != nil {
 		return []string{}, err
 	}
-	return getUsersList(token)
+	return n.getUsersList()
 }
 
-func getAuthToken() (string, error) {
-	resp, err := http.Get(fmt.Sprintf("%s/auth", baseURL))
+func (n *NOCList) getAuthToken() error {
+	n.tokenMu.Lock()
+	if n.token != "" {
+		return nil
+	}
+	resp, err := http.Get(fmt.Sprintf("%s/auth", n.baseURL))
 	if err != nil {
 		// TODO: retry
-		return "", err
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("HTTP Status %d: %s", resp.StatusCode, resp.Body)
+		return fmt.Errorf("HTTP Status %d: %s", resp.StatusCode, resp.Body)
 	}
-	token := resp.Header.Get("Badsec-Authentication-Token")
-	return token, nil
+	n.token = resp.Header.Get("Badsec-Authentication-Token")
+	n.tokenMu.Unlock()
+	return nil
 }
 
-func getUsersList(token string) ([]string, error) {
+func (n *NOCList) getUsersList() ([]string, error) {
 	reqPath := "/users"
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", baseURL, reqPath), nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", n.baseURL, reqPath), nil)
 	if err != nil {
 		return []string{}, err
 	}
-	req.Header.Add("X-Request-Checksum", fmt.Sprintf("%s", reqChecksum(token, reqPath)))
+	req.Header.Add("X-Request-Checksum", fmt.Sprintf("%s", n.reqChecksum(n.token, reqPath)))
 	client := &http.Client{}
 	vipResp, err := client.Do(req)
 	if err != nil {
@@ -54,15 +69,15 @@ func getUsersList(token string) ([]string, error) {
 		body, _ := io.ReadAll(vipResp.Body)
 		return []string{}, fmt.Errorf("HTTP Status %d: %s", vipResp.StatusCode, body)
 	}
-	return parseVIPs(vipResp.Body), nil
+	return n.parseVIPs(vipResp.Body), nil
 }
 
-func reqChecksum(token string, reqPath string) string {
+func (n *NOCList) reqChecksum(token string, reqPath string) string {
 	var sha = sha256.Sum256([]byte(token + reqPath))
 	return hex.EncodeToString(sha[:])
 }
 
-func parseVIPs(vipRead io.ReadCloser) []string {
+func (n *NOCList) parseVIPs(vipRead io.ReadCloser) []string {
 	scanner := bufio.NewScanner(vipRead)
 	var vips []string
 	for scanner.Scan() {
