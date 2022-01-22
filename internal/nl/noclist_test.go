@@ -10,7 +10,8 @@ import (
 
 func TestHappyPath(t *testing.T) {
 	fetcher := New()
-	fetcher.client = &mockClient{}
+	m := &mockClient{}
+	fetcher.client = m
 
 	vips, err := fetcher.Fetch()
 	if err != nil {
@@ -19,6 +20,10 @@ func TestHappyPath(t *testing.T) {
 	}
 	if len(vips) < 1 {
 		t.Log("NOC list was empty")
+		t.FailNow()
+	}
+	if m.authCalledCount != 1 || m.usersCalledCount != 1 {
+		t.Logf("unexpected number of HTTP calls, expected (1,1), actual (%d,%d)", m.authCalledCount, m.usersCalledCount)
 		t.FailNow()
 	}
 }
@@ -33,18 +38,21 @@ type mockClient struct {
 
 func (m *mockClient) Do(req *http.Request) (*http.Response, error) {
 	if req.URL.Path == "/auth" {
+		m.authCalledCount++
 		resp := m.makeRespBody(200, "not used")
 		resp.Header.Add(tokenHeaderName, testToken)
 		return resp, nil
 	}
-	if req.URL.Path == "/users" {
 
+	if req.URL.Path == "/users" {
+		m.usersCalledCount++
 		actualChecksum := req.Header.Get(checksumHeaderName)
 		if actualChecksum != testChecksum {
 			return m.makeRespBody(403, fmt.Sprintf("Bad checksum (got %s)", actualChecksum)), nil
 		}
 		return m.makeRespBody(200, "4\n5\n6"), nil
 	}
+
 	return &http.Response{StatusCode: 404}, nil
 }
 
