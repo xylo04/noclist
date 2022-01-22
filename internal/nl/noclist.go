@@ -13,6 +13,8 @@ import (
 const tokenHeaderName = "Badsec-Authentication-Token"
 const checksumHeaderName = "X-Request-Checksum"
 
+var TooManyRetries = fmt.Errorf("too many retries")
+
 type NOCList struct {
 	baseURL string
 	client  httpClient
@@ -106,12 +108,16 @@ func (n *NOCList) doWithRetry(req *http.Request) (*http.Response, error) {
 		if err == nil && resp.StatusCode < 300 {
 			return resp, nil
 		}
+		if err != nil {
+			// disconnect?
+			continue
+		}
 		if resp.StatusCode/100 == 4 {
-			// client error, don't retry
+			// client error, don't retry. Should this make an exception for HTTP 429?
 			return resp, n.makeRespError(resp)
 		}
 	}
-	return resp, fmt.Errorf("too many retries")
+	return resp, TooManyRetries
 }
 
 func (n *NOCList) makeRespError(resp *http.Response) error {
