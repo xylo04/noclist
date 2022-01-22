@@ -10,11 +10,20 @@ import (
 	"sync"
 )
 
+const tokenHeaderName = "Badsec-Authentication-Token"
+const checksumHeaderName = "X-Request-Checksum"
+
 type NOCList struct {
 	baseURL string
-	client  *http.Client
+	client  httpClient
 	tokenMu sync.Mutex
 	token   string
+}
+
+// httpClient has a single method that the standard http.Client can fulfill. This is abstraction is
+// used to mock the HTTP calls in tests.
+type httpClient interface {
+	Do(req *http.Request) (*http.Response, error)
 }
 
 func New() *NOCList {
@@ -53,7 +62,7 @@ func (n *NOCList) getAuthToken() error {
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("HTTP Status %d: %s", resp.StatusCode, resp.Body)
 	}
-	n.token = resp.Header.Get("Badsec-Authentication-Token")
+	n.token = resp.Header.Get(tokenHeaderName)
 	return nil
 }
 
@@ -63,7 +72,7 @@ func (n *NOCList) getUsersList() ([]string, error) {
 	if err != nil {
 		return []string{}, err
 	}
-	req.Header.Add("X-Request-Checksum", fmt.Sprintf("%s", n.reqChecksum(n.token, reqPath)))
+	req.Header.Add(checksumHeaderName, fmt.Sprintf("%s", n.reqChecksum(reqPath)))
 	vipResp, err := n.client.Do(req)
 	if err != nil {
 		// TODO: retry
@@ -77,8 +86,9 @@ func (n *NOCList) getUsersList() ([]string, error) {
 	return n.parseVIPs(vipResp.Body), nil
 }
 
-func (n *NOCList) reqChecksum(token string, reqPath string) string {
-	var sha = sha256.Sum256([]byte(token + reqPath))
+func (n *NOCList) reqChecksum(reqPath string) string {
+	cs := n.token + reqPath
+	var sha = sha256.Sum256([]byte(cs))
 	return hex.EncodeToString(sha[:])
 }
 
