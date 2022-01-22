@@ -34,6 +34,7 @@ func (n *NOCList) Fetch() ([]string, error) {
 
 func (n *NOCList) getAuthToken() error {
 	n.tokenMu.Lock()
+	defer n.tokenMu.Unlock()
 	if n.token != "" {
 		return nil
 	}
@@ -47,7 +48,6 @@ func (n *NOCList) getAuthToken() error {
 		return fmt.Errorf("HTTP Status %d: %s", resp.StatusCode, resp.Body)
 	}
 	n.token = resp.Header.Get("Badsec-Authentication-Token")
-	n.tokenMu.Unlock()
 	return nil
 }
 
