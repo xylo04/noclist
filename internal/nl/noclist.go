@@ -12,6 +12,7 @@ import (
 
 type NOCList struct {
 	baseURL string
+	client  *http.Client
 	tokenMu sync.Mutex
 	token   string
 }
@@ -19,6 +20,7 @@ type NOCList struct {
 func New() *NOCList {
 	return &NOCList{
 		baseURL: "http://localhost:8888",
+		client:  &http.Client{},
 	}
 }
 
@@ -38,7 +40,11 @@ func (n *NOCList) getAuthToken() error {
 	if n.token != "" {
 		return nil
 	}
-	resp, err := http.Get(fmt.Sprintf("%s/auth", n.baseURL))
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", n.baseURL, "/auth"), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := n.client.Do(req)
 	if err != nil {
 		// TODO: retry
 		return err
@@ -58,8 +64,7 @@ func (n *NOCList) getUsersList() ([]string, error) {
 		return []string{}, err
 	}
 	req.Header.Add("X-Request-Checksum", fmt.Sprintf("%s", n.reqChecksum(n.token, reqPath)))
-	client := &http.Client{}
-	vipResp, err := client.Do(req)
+	vipResp, err := n.client.Do(req)
 	if err != nil {
 		// TODO: retry
 		return []string{}, err
